@@ -600,15 +600,80 @@ UPDATE abr SET valeur = 4 WHERE id = 4; -- fail attendu : 4 est dans le sous-arb
 -- E3Q1 — Calculer la position et le temps d’attente à l’insertion avec des déclencheurs classiques.
 -- ------------------------------------------------------------------------------------------------
 
--- À compléter.
+-- On applique le trigger sur un BEFORE INSERT pour modifier les lignes avant qu'elles soient insérées.
+-- Le même processus sur un AFTER INSERT demande de lire les données d'une table en mutation.
+CREATE OR REPLACE TRIGGER insert_file
+BEFORE INSERT ON filedattente
+FOR EACH ROW
+DECLARE
+    max_pos INTEGER;
+    dernier_temps INTEGER;
+    rdm INTEGER;
+BEGIN
+    -- Récupération de la dernière position
+    -- (= 0 si c'est la première insertion de la file)
+    SELECT NVL(MAX(position), 0)
+    INTO max_pos
+    FROM filedattente
+    WHERE num_file = :NEW.num_file;
+
+    -- Récupération du temps associé
+    -- (= 0 si c'est la première insertion de la file)
+    IF max_pos != 0 THEN
+        SELECT temps_attente
+        INTO dernier_temps
+        FROM filedattente
+        WHERE num_file = :NEW.num_file AND position = max_pos
+        ;
+    ELSE
+        dernier_temps := 0;
+    END IF;
+
+    -- Temps supplémentaire aléatoire
+    rdm := TRUNC(DBMS_RANDOM.VALUE(1, 11));
+
+    -- Initialisation de la nouvelle ligne
+    :NEW.position := max_pos + 1;
+    :NEW.temps_attente := dernier_temps + rdm;
+END;
+/
 
 
 -- ------------------------------------------------------------------------------------------------
 -- E3Q2 — Tester les insertions dans les files d’attente.
 -- ------------------------------------------------------------------------------------------------
 
--- À compléter.
+-- Tests fournis :
+insert into FileDAttente (num, num_file) values(1, 1);
+insert into FileDAttente (num, num_file) values(2, 1);
+insert into FileDAttente (num, num_file) values(3, 1);
+insert into FileDAttente (num, num_file) values(4, 1);
+insert into FileDAttente (num, num_file) values(5, 2);
+insert into FileDAttente (num, num_file) values(6, 2);
+insert into FileDAttente (num, num_file) values(7, 3);
+insert into FileDAttente (num, num_file) values(8, 4);
+insert into FileDAttente (num, num_file) values(9, 4);
+insert into FileDAttente (num, num_file) values(10,4);
 
+select * from filedattente;
+
+
+-- Résultats :
+-- NUM NUM_FILE POSITION TEMPS_ATTENTE 
+-- --- -------- -------- ------------- 
+-- 1   1        1        1
+-- 2   1        2        6
+-- 3   1        3        10
+-- 4   1        4        19
+-- 5   2        1        5
+-- 6   2        2        8
+-- 7   3        1        7
+-- 8   4        1        8
+-- 9   4        2        14
+-- 10  4        3        21
+-- 
+-- Elapsed: 00:00:00.005
+-- 10 rows selected. 
 
 -- ------------------------------------------------------------------------------------------------
 -- E3Q3 — Actualiser la position et le temps d’attente lors d’un changement de file.
