@@ -159,14 +159,58 @@ SELECT * FROM Livre;
 -- ------------------------------------------------------------------------------------------------
 -- A7 — Calculer le prix moyen des exemplaires du livre d'ISBN 1.
 
--- Compléter ici
+-- Deux livres enregistrés, de prix 15.5 et 12. Moyenne attendue de 13.75.
+
+SELECT SUM(e.prix)/COUNT(*) prix_moyen
+FROM Livre l, TABLE(l.exemplaires) e    -- TABLE() permet de désimbriquer la collection !
+WHERE ISBN = 1;
+
+
+-- Résultat :
+-- PRIX_MOYEN 
+-- ---------- 
+-- 13.75      
 
 
 -- ------------------------------------------------------------------------------------------------
 -- A8 — Calculer la somme perçue si tous les exemplaires du livre d'ISBN 1 étaient
 -- rendus aujourd'hui.
 
--- Compléter ici
+-- Ne concerne qu'un seul livre (le premier n'est pas emprunté) de coût 12 avec un intérêt de 0.5 
+-- par jour, emprunté il y a 5 jours. Somme attendue de 14.5.
+
+SELECT SUM(e.prix+e.emprunt.cout_tot()) somme_tot -- La méthode cout_tot appartient à emprunt.
+FROM Livre l, TABLE(l.exemplaires) e
+WHERE ISBN = 1;
+
+-- Résultat :
+-- SOMME_TOT 
+-- --------- 
+-- 14.5        
+
+-- On peut tester avec deux livres empruntés. On insère un exemplaire supplémentaire :
+INSERT INTO TABLE(
+    SELECT l.exemplaires
+    FROM Livre l
+    WHERE l.ISBN = 1
+)
+VALUES (
+    t_exemplaire(20.00, t_emprunt(
+        t_personne('Alice', 'Durand'),
+        SYSDATE - 2,
+        1.00
+    ))
+);
+
+-- On vérifie la nouvelle somme (14.5 + (20+1*2) = 36.5) :
+SELECT SUM(e.prix + e.emprunt.cout_tot()) somme_tot
+FROM Livre l, TABLE(l.exemplaires) e
+WHERE l.ISBN = 1;
+
+-- Résultat :
+-- SOMME_TOT 
+-- --------- 
+-- 36.5        
 
 
 -- ------------------------------------------------------------------------------------------------
