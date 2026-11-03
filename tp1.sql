@@ -793,7 +793,6 @@ END insert_file;
 /
 
 
-
 -- ------------------------------------------------------------------------------------------------
 -- E3Q6 — Vérifier les insertions et les changements de file avec les déclencheurs composés.
 -- ------------------------------------------------------------------------------------------------
@@ -834,4 +833,3 @@ update FileDAttente set num_file = 2 where num = 4;
 -- 
 -- Elapsed: 00:00:00.004
 -- 10 rows selected. 
-

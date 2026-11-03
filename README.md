@@ -5,6 +5,7 @@ Travaux pratiques d’IDD réalisés à l’Université de Poitiers, en SQL et P
 ## Contenu
 
 - `tp1.sql` : requêtes, contraintes et déclencheurs ; manipulation d’arbres binaires de recherche.
+- `tp2.sql` : modèle relationnel-objet.
 
 Le dépôt sera complété au fil des TP.
 
