@@ -679,25 +679,159 @@ select * from filedattente;
 -- E3Q3 — Actualiser la position et le temps d’attente lors d’un changement de file.
 -- ------------------------------------------------------------------------------------------------
 
--- À compléter.
+-- On reprend exactement le même trigger que E3Q1, à une seule différence près...
+CREATE OR REPLACE TRIGGER insert_file
+BEFORE INSERT OR UPDATE OF num_file ON filedattente -- On rajoute une condition UPDATE d'activation !
+FOR EACH ROW    -- Le reste du trigger est strictement identique à ce qu'on avait précédemment.
+DECLARE
+    max_pos INTEGER;
+    dernier_temps INTEGER;
+    rdm INTEGER;
+BEGIN
+    SELECT NVL(MAX(position), 0)
+    INTO max_pos
+    FROM filedattente
+    WHERE num_file = :NEW.num_file;
+
+    IF max_pos != 0 THEN
+        SELECT temps_attente
+        INTO dernier_temps
+        FROM filedattente
+        WHERE num_file = :NEW.num_file AND position = max_pos
+        ;
+    ELSE
+        dernier_temps := 0;
+    END IF;
+
+    rdm := TRUNC(DBMS_RANDOM.VALUE(1, 11));
+
+    :NEW.position := max_pos + 1;
+    :NEW.temps_attente := dernier_temps + rdm;
+END;
+/
 
 
 -- ------------------------------------------------------------------------------------------------
 -- E3Q4 — Tester les changements de file et expliquer les erreurs de table en mutation.
 -- ------------------------------------------------------------------------------------------------
 
--- À compléter.
+UPDATE FILEDATTENTE
+SET num_file = 2
+WHERE num = 7;
 
+-- ORA-04091 : table VINCENT_TOURENNE_SCHEMA_OHDI4.FILEDATTENTE is mutating, trigger/function may not see it
+
+-- → Pourquoi ?
+-- Le trigger utilise FOR EACH ROW : il consulte la table FILEDATTENTE pendant sa mutation.
+-- Cela marchait sur un BEFORE INSERT car Oracle autorise une consultation exceptionnelle dans ce cas.
+-- Cette exception ne s'applique pas à UPDATE, même avec BEFORE.
 
 -- ------------------------------------------------------------------------------------------------
 -- E3Q5 — Réécrire les automatisations avec des déclencheurs composés.
 -- ------------------------------------------------------------------------------------------------
 
--- À compléter.
+
+CREATE OR REPLACE TRIGGER insert_file
+FOR INSERT OR UPDATE OF num_file ON filedattente
+COMPOUND TRIGGER
+
+    -- Informations mémorisées pour chaque file
+    TYPE t_info IS RECORD (
+        max_pos INTEGER,
+        dernier_temps INTEGER
+    );
+
+    -- Tableau associatif indexé par numéro de file
+    TYPE t_files IS TABLE OF t_info INDEX BY PLS_INTEGER;
+    infos t_files;
+
+    -- Avant toute insertion ou modification
+    BEFORE STATEMENT IS
+        info t_info;
+    BEGIN
+        -- Récupère la dernière entrée de chaque file
+        FOR f IN (
+            SELECT a.num_file, a.position, a.temps_attente
+            FROM filedattente a
+            WHERE a.position = (
+                SELECT MAX(b.position)
+                FROM filedattente b
+                WHERE b.num_file = a.num_file
+            )
+        ) LOOP
+            info.max_pos := f.position;
+            info.dernier_temps := f.temps_attente;
+            infos(f.num_file) := info;
+        END LOOP;
+    END BEFORE STATEMENT;
+
+    -- Avant chaque ligne insérée ou modifiée
+    BEFORE EACH ROW IS
+        info t_info;
+        rdm INTEGER;
+    BEGIN
+        -- Récupère les informations de la file concernée
+        IF infos.EXISTS(:NEW.num_file) THEN
+            info := infos(:NEW.num_file);
+        ELSE
+            info.max_pos := 0;
+            info.dernier_temps := 0;
+        END IF;
+
+        rdm := TRUNC(DBMS_RANDOM.VALUE(1, 11));
+
+        :NEW.position := info.max_pos + 1;
+        :NEW.temps_attente := info.dernier_temps + rdm;
+
+        -- Actualise les informations mémorisées
+        info.max_pos := :NEW.position;
+        info.dernier_temps := :NEW.temps_attente;
+        infos(:NEW.num_file) := info;
+    END BEFORE EACH ROW;
+
+END insert_file;
+/
+
 
 
 -- ------------------------------------------------------------------------------------------------
 -- E3Q6 — Vérifier les insertions et les changements de file avec les déclencheurs composés.
 -- ------------------------------------------------------------------------------------------------
 
--- À compléter.
+delete from FileDAttente;
+insert into FileDAttente (num, num_file) values(1, 1);
+insert into FileDAttente (num, num_file) values(2, 1);
+insert into FileDAttente (num, num_file) values(3, 1);
+insert into FileDAttente (num, num_file) values(4, 1);
+insert into FileDAttente (num, num_file) values(5, 2);
+insert into FileDAttente (num, num_file) values(6, 2);
+insert into FileDAttente (num, num_file) values(7, 3);
+insert into FileDAttente (num, num_file) values(8, 4);
+insert into FileDAttente (num, num_file) values(9, 4);
+insert into FileDAttente (num, num_file) values(10,4);
+
+-- la file 3 doit devenir vide, 7 doit être en 3ème position de la file 2 
+update FileDAttente set num_file = 2 where num = 7;
+-- 10 doit devenir le 1er de la file 3, la file 4 ne doit plus avoir que 2 éléments 
+update FileDAttente set num_file = 3 where num = 10;
+-- 4 doit devenir le 4ème de la file 2, la file 1 ne doit plus avoir que 3 éléments
+update FileDAttente set num_file = 2 where num = 4;
+
+
+-- Résultats :
+-- NUM NUM_FILE POSITION TEMPS_ATTENTE 
+-- --- -------- -------- ------------- 
+-- 1   1        1        9             
+-- 2   1        2        11            
+-- 3   1        3        16            
+-- 4   2        4        12            
+-- 5   2        1        1             
+-- 6   2        2        3             
+-- 7   2        3        8             
+-- 8   4        1        4             
+-- 9   4        2        6             
+-- 10  3        1        7             
+-- 
+-- Elapsed: 00:00:00.004
+-- 10 rows selected. 
+
