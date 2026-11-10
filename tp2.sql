@@ -222,7 +222,7 @@ WHERE l.ISBN = 1;
 -- 2. Création d'un type auteur : personne + si elle a le prix Goncourt ou non.
 -- 3. Un livre doit avoir un ou plusieurs auteurs de définis (collection, comme pour les exemplaires).
 
--- 1.
+-- 1. PERSONNE : REFERENCE VERS PERE
 
 -- ALTER plutôt qu'un DROP OR REPLACE : le type t_personne existe déjà et a des dépendances.
 ALTER TYPE t_personne
@@ -242,15 +242,141 @@ SELECT t_personne('Jean-Jean', 'Dupont', REF(p))
 FROM Personnes p
 WHERE p.prenom = 'Jean' AND p.nom = 'Dupont';
 
-SELECT p.prenom, p.nom, DEREF(p.pere) AS pere
+SELECT p.prenom, p.nom,
+       p.pere.prenom AS prenom_pere,
+       p.pere.nom AS nom_pere
 FROM Personnes p;
+
+
+-- Résultat attendu :
+-- PRENOM               NOM                  PRENOM_PERE          NOM_PERE            
+-- -------------------- -------------------- -------------------- --------------------
+-- Jean                 Dupont                                                        
+-- Jean-Jean            Dupont               Jean                 Dupont
+
+-- Ajout de personnes qui seront des auteurs
+INSERT INTO Personnes VALUES (t_personne('J.R.R', 'Tolkien', NULL));
+INSERT INTO Personnes VALUES (t_personne('Moi', 'Même', NULL));
+
+INSERT INTO Personnes
+SELECT t_personne('Mon', 'Fils', REF(p))
+FROM Personnes p
+WHERE p.prenom = 'Moi' AND p.nom = 'Même';
+
+
+-- 2. TYPE AUTEUR
+
+-- Création du type
+CREATE TYPE t_auteur AS OBJECT (
+    personne REF t_personne,    -- pointe vers une personne existante
+    goncourt CHAR(1)            -- O pour oui, N pour non
+);
+/
+
+
+-- 3. AJOUT DU TYPE AUTEUR EN COLLECTION A LA TABLE LIVRE
+
+-- Collection
+CREATE TYPE auteur_list AS TABLE OF t_auteur;
+/
+
+-- Ajout de la collection à Livre
+ALTER TABLE Livre
+ADD (auteurs auteur_list)
+NESTED TABLE auteurs STORE AS AuteursLivre;
+/
+
+-- Trigger sur la table livre, on doit forcément avoir au moins un auteur à l'insertion
+-- (On ne gère pas ici les livres exemples déjà insérés)
+CREATE OR REPLACE TRIGGER no_empty_auteur
+BEFORE INSERT OR UPDATE OF auteurs ON Livre
+FOR EACH ROW
+DECLARE
+    liste auteur_list;
+BEGIN
+    liste := :NEW.auteurs;
+    IF liste IS NULL THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Le livre doit avoir au moins un auteur !');
+    ELSIF liste.COUNT = 0 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Le livre doit avoir au moins un auteur !');
+    END IF;
+END;
+/
+
+-- Test :
+-- Update d'un livre existant
+-- On récupère une personne de la table personne comme auteur
+UPDATE Livre l
+SET auteurs = (
+    SELECT auteur_list(t_auteur(REF(p), 'N'))
+    FROM Personnes p
+    WHERE p.prenom = 'J.R.R' AND p.nom = 'Tolkien'
+)
+WHERE l.ISBN = 1;
+
+-- Insertion d'un livre sans auteur
+INSERT INTO Livre (ISBN, titre, exemplaires)
+VALUES (
+    4,
+    'MonLivreAMoi',
+    ex_list(
+        t_exemplaire(100.00, NULL),
+        t_exemplaire(0.00, NULL)
+    )
+);
+-- Erreur SQL : ORA-20001: Le livre inséré doit avoir au moins un auteur !
+
+-- Insertion d'un livre avec plusieurs auteurs
+INSERT INTO Livre (ISBN, titre, exemplaires, auteurs)
+SELECT 4,
+       'MonLivreAMoi',
+       ex_list(t_exemplaire(100.00, NULL), t_exemplaire(0.00, NULL)),
+       auteur_list(
+           t_auteur(REF(p), 'O'),
+           t_auteur(REF(f), 'N')
+       )
+FROM Personnes p, Personnes f
+WHERE p.prenom = 'Moi' AND p.nom = 'Même' AND f.prenom = 'Mon' AND f.nom = 'Fils';
+
+SELECT 
+    l.ISBN, l.titre,
+    a.personne.prenom AS prenom_auteur,
+    a.personne.nom AS nom_auteur,
+    a.goncourt
+FROM Livre l, TABLE(l.auteurs) a;
+
+-- Résultat attendu :
+--       ISBN TITRE                                              PRENOM_AUTEUR        NOM_AUTEUR           G
+-- ---------- -------------------------------------------------- -------------------- -------------------- -
+--          1 Le Hobbit                                          J.R.R                Tolkien              N
+--          4 MonLivreAMoi                                       Moi                  Même                 O
+--          4 MonLivreAMoi                                       Mon                  Fils                 N
 
 
 -- ------------------------------------------------------------------------------------------------
 -- A10 — Proposer des requêtes montrant l'intérêt de l'extension précédente.
--- Exemple donné : rechercher tous les livres écrits par un auteur particulier.
 
--- Compléter ici
+-- Exemple simple : récupérer tous les livres écris par Mon Fils
+
+-- Update simple pour retourner plusieurs livres
+UPDATE Livre l
+SET auteurs = (
+    SELECT auteur_list(t_auteur(REF(f), 'N'))
+    FROM Personnes f
+    WHERE f.prenom = 'Mon' AND f.nom = 'Fils'
+)
+WHERE l.ISBN = 3;
+
+-- Requête :
+SELECT
+    l.ISBN,
+    l.titre,
+    a.personne.prenom AS prenom_auteur,
+    a.personne.nom AS nom_auteur
+FROM Livre l, TABLE(l.auteurs) a
+WHERE a.personne.prenom = 'Mon' AND a.personne.nom = 'Fils';
+
+
 
 
 -- ================================================================================================
@@ -263,7 +389,25 @@ FROM Personnes p;
 -- B1 — Proposer une conception relationnelle-objet pour le cahier des charges VOD.
 -- ------------------------------------------------------------------------------------------------
 
--- Compléter ici
+
+-- On fait un type t_personne(prénom, nom), utile pour un peu tout :)
+-- type t_dates(date_debut, date_fin), utile pour location et abonnement
+
+-- On utilise un mécanisme d'héritage pour le contenu :
+-- Classe CONTENU de base avec ref(pkey), titre, desc, thème, mots clés (collection varchar), réalisateurs (collection t_personne), année et pays
+-- Héritage en :
+-- - cinema : duree, acteurs (collection t_personne), scenaristes (collection t_personne)
+-- - serie : collection saisons (type t_saison(nb_ep, desc)) + nombre (automatisé par trigger)
+-- - jeunesse : duree, scenaristes (collection t_personne), compositeur (collection t_personne)
+-- - divertissement : duree, metteurs en scene (collection t_personne), interprètes (collection t_personne)
+
+--  → table Contenu of type t_contenu avec tout ça
+
+-- type t_location(ref id_contenu, t_dates, num_saison_serie (peut être null))
+-- Table modèle d'abonnement : duree max d'emprunt pour les 4 types (max_cine, max_series...), nb max total d'emprunts, coût mensuel
+-- type t_abonnement(ref id_abonnement, t_dates)
+
+-- Table CompteClient : id (pkey), nom, prenom, adresse, mail, telephone, mdp, contenus achetés (collection t_contenu), contenus loués (collection t_location), abonnement t_abonnement (peut être null)
 
 
 -- ------------------------------------------------------------------------------------------------
