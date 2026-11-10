@@ -215,10 +215,35 @@ WHERE l.ISBN = 1;
 
 -- ------------------------------------------------------------------------------------------------
 -- A9 — Proposer une extension de la base relationnelle-objet couvrant l'ensemble du
--- cahier des charges (plusieurs auteurs par livre, auteurs éventuellement lauréats du
--- prix Goncourt, personnes décrites aussi par leur père, etc.).
+-- cahier des charges.
 
--- Compléter ici
+-- Changements à effectuer :
+-- 1. Une personne doit avoir une référence vers son père, une autre personne.
+-- 2. Création d'un type auteur : personne + si elle a le prix Goncourt ou non.
+-- 3. Un livre doit avoir un ou plusieurs auteurs de définis (collection, comme pour les exemplaires).
+
+-- 1.
+
+-- ALTER plutôt qu'un DROP OR REPLACE : le type t_personne existe déjà et a des dépendances.
+ALTER TYPE t_personne
+ADD ATTRIBUTE (pere REF t_personne)
+CASCADE;
+/
+
+-- Besoin d'avoir une table personne pour que pere puisse pointer qq part
+CREATE TABLE Personnes OF t_personne;
+
+
+-- Enregistrement et test
+INSERT INTO Personnes VALUES (t_personne('Jean', 'Dupont', NULL));
+
+INSERT INTO Personnes
+SELECT t_personne('Jean-Jean', 'Dupont', REF(p))
+FROM Personnes p
+WHERE p.prenom = 'Jean' AND p.nom = 'Dupont';
+
+SELECT p.prenom, p.nom, DEREF(p.pere) AS pere
+FROM Personnes p;
 
 
 -- ------------------------------------------------------------------------------------------------
