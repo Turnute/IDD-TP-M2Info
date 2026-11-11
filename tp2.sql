@@ -376,8 +376,17 @@ SELECT
 FROM Livre l, TABLE(l.auteurs) a
 WHERE a.personne.prenom = 'Mon' AND a.personne.nom = 'Fils';
 
+-- ------------------------------------------------------------------------------------------------
+-- Nettoyage de l'exercice A
+DROP TABLE Livre PURGE;
+DROP TABLE Personnes PURGE;
 
-
+DROP TYPE auteur_list;
+DROP TYPE ex_list;
+DROP TYPE t_auteur;
+DROP TYPE t_exemplaire;
+DROP TYPE t_emprunt;
+DROP TYPE t_personne;
 
 -- ================================================================================================
 -- EXERCICE B — CONCEPTION D'UNE PLATEFORME DE VOD EN RELATIONNEL-OBJET
@@ -389,30 +398,518 @@ WHERE a.personne.prenom = 'Mon' AND a.personne.nom = 'Fils';
 -- B1 — Proposer une conception relationnelle-objet pour le cahier des charges VOD.
 -- ------------------------------------------------------------------------------------------------
 
+-- ------------------------------------------------------------------------------------------------
+-- EXPLICATION DE LA PROPOSITION
 
--- On fait un type t_personne(prénom, nom), utile pour un peu tout :)
+-- On fait un type t_personne(prénom, nom), utile pour un peu tout
+-- Table Personne pour stocker toutes les personnes enregistrées dans la bd (pas les clients : les réalisateurs, acteurs...)
+
 -- type t_dates(date_debut, date_fin), utile pour location et abonnement
 
 -- On utilise un mécanisme d'héritage pour le contenu :
--- Classe CONTENU de base avec ref(pkey), titre, desc, thème, mots clés (collection varchar), réalisateurs (collection t_personne), année et pays
+-- Classe CONTENU de base avec id(pkey), titre, desc, thème, mots clés (collection varchar), réalisateurs (collection t_personne), année et pays
 -- Héritage en :
 -- - cinema : duree, acteurs (collection t_personne), scenaristes (collection t_personne)
--- - serie : collection saisons (type t_saison(nb_ep, desc)) + nombre (automatisé par trigger)
+-- - serie : collection saisons (type t_saison(num, nb_ep, desc)) + nombre (automatisé par trigger)
 -- - jeunesse : duree, scenaristes (collection t_personne), compositeur (collection t_personne)
 -- - divertissement : duree, metteurs en scene (collection t_personne), interprètes (collection t_personne)
 
 --  → table Contenu of type t_contenu avec tout ça
 
--- type t_location(ref id_contenu, t_dates, num_saison_serie (peut être null))
--- Table modèle d'abonnement : duree max d'emprunt pour les 4 types (max_cine, max_series...), nb max total d'emprunts, coût mensuel
--- type t_abonnement(ref id_abonnement, t_dates)
+-- type t_location(ref t_contenu, t_dates, num_saison (peut être null))
+-- type t_achat(ref t_contenu, num_saison)
 
--- Table CompteClient : id (pkey), nom, prenom, adresse, mail, telephone, mdp, contenus achetés (collection t_contenu), contenus loués (collection t_location), abonnement t_abonnement (peut être null)
+-- Table modèle d'abonnement : duree max d'emprunt pour les 4 types (max_cine, max_series...), nb max total d'emprunts, prix mensuel, nom formule, id
+
+-- type t_abonnement(id_abonnement, t_dates)
+
+-- Table CompteClient :
+-- - id (pkey), nom, prenom, adresse, mail, telephone, mdp,
+-- - contenus achetés (collection t_achat),
+-- - contenus loués (collection t_location),
+-- - abonnement t_abonnement (peut être null) (foreign key)
+
+-- TODO : petit diagramme de classe / base de données en texte pour expliquer tout ça
+
+
+------------------------------------------------------------------------------------------------
+-- CREATION DE LA STRUCTURE DE LA BASE DE DONNEES
+
+-- TYPES BASIQUES --------------------------------------------------------------
+
+-- Représente une personne en bd (pas un client)
+CREATE OR REPLACE TYPE t_personne AS OBJECT (
+    id_personne NUMBER,
+    prenom VARCHAR(20),
+    nom VARCHAR(20)
+);
+/
+
+CREATE TABLE Personne OF t_personne (
+    CONSTRAINT pk_personne PRIMARY KEY (id_personne)
+);
+
+-- Collection de reférences aux personnes
+CREATE TYPE personnes_refs AS TABLE OF REF t_personne;
+/
+
+-- Représente une plage de dates (début et fin), utile notamment à la location
+-- et à l'abonnement
+CREATE OR REPLACE TYPE t_dates AS OBJECT (
+    date_debut DATE,
+    date_fin DATE
+);
+/
+
+-- CONTENU ---------------------------------------------------------------------
+
+-- Collection de mots clés d'un contenu
+CREATE TYPE mots_cles_list AS TABLE OF VARCHAR(20);
+/
+
+-- Représente un contenu quelconque
+CREATE OR REPLACE TYPE t_contenu AS OBJECT (
+    id_contenu NUMBER, -- TODO : en faire une pkey ?
+    titre VARCHAR(100),
+    description VARCHAR(300),
+    theme VARCHAR(50),
+    mots_cles mots_cles_list,
+    realisateurs personnes_refs,
+    annee NUMBER(4),
+    pays VARCHAR(50)
+) NOT FINAL;
+/
+
+-- Représente un film (héritage de contenu)
+CREATE TYPE t_cinema UNDER t_contenu (
+    duree NUMBER,               -- en minutes
+    acteurs personnes_refs,     -- collection d'acteurs
+    scenaristes personnes_refs  -- collection de scénaristes
+);
+/
+
+-- Représente une saison d'une série
+CREATE TYPE t_saison AS OBJECT (
+    numero NUMBER,
+    nb_episodes NUMBER,
+    description VARCHAR(300)
+);
+/
+
+-- Collection de saisons
+CREATE TYPE saisons_list AS TABLE OF t_saison;
+/
+
+-- Représente une série (héritage de contenu)
+CREATE TYPE t_serie UNDER t_contenu (
+    saisons saisons_list
+);
+/
+
+-- Représente un contenu de jeunesse (héritage de contenu)
+CREATE TYPE t_jeunesse UNDER t_contenu (
+    duree NUMBER,
+    scenaristes personnes_refs,
+    compositeurs personnes_refs
+);
+/
+
+-- Représente un divertissement (héritage de contenu)
+CREATE TYPE t_divertissement UNDER t_contenu (
+    duree NUMBER,
+    metteurs_en_scene personnes_refs,
+    interpretes personnes_refs
+);
+/
+
+-- Table des contenus : stocke des contenus de type t_contenu ou hérités
+CREATE TABLE Contenu OF t_contenu (
+    CONSTRAINT pk_contenu PRIMARY KEY (id_contenu)
+)
+NESTED TABLE mots_cles STORE AS MotsCles_Stockage
+NESTED TABLE realisateurs STORE AS Real_Stockage
+NESTED TABLE TREAT(OBJECT_VALUE AS t_cinema).acteurs STORE AS CineActeurs_Stockage
+NESTED TABLE TREAT(OBJECT_VALUE AS t_cinema).scenaristes STORE AS CineScenaristes_Stockage
+NESTED TABLE TREAT(OBJECT_VALUE AS t_serie).saisons STORE AS Saisons_Stockage
+NESTED TABLE TREAT(OBJECT_VALUE AS t_jeunesse).scenaristes STORE AS JeunScenaristes_Stockage
+NESTED TABLE TREAT(OBJECT_VALUE AS t_jeunesse).compositeurs STORE AS JeunCompositeurs_Stockage
+NESTED TABLE TREAT(OBJECT_VALUE AS t_divertissement).metteurs_en_scene STORE AS DivMetteurs_Stockage
+NESTED TABLE TREAT(OBJECT_VALUE AS t_divertissement).interpretes STORE AS DivInterpretes_Stockage;
+
+
+-- FORMULES D'ABONNEMENT --------------------------------------------------------
+
+-- Stocke les différents modèles d'abonnement possibles
+CREATE TABLE Abonnement (
+    id_abonnement NUMBER PRIMARY KEY,
+    nom_formule VARCHAR(20) NOT NULL,
+    prix_mensuel DECIMAL(19, 4) NOT NULL,
+    nb_locations_max NUMBER NOT NULL,
+    duree_cinema NUMBER NOT NULL,
+    duree_serie NUMBER NOT NULL,
+    duree_jeunesse NUMBER NOT NULL,
+    duree_divertissement NUMBER NOT NULL
+);
+
+
+-- Représente un abonnement effectif
+CREATE OR REPLACE TYPE t_abonnement AS OBJECT (
+    id_abonnement NUMBER,   -- type d'abonnement
+    dates t_dates           -- duree de l'abonnement
+);
+/
+
+-- LOCATIONS ET ACHATS --------------------------------------------------------
+
+-- Représente une location
+CREATE OR REPLACE TYPE t_location AS OBJECT (
+    contenu REF t_contenu,
+    dates t_dates,
+    num_saison NUMBER -- Si on loue qu'une saison d'une série
+);
+/
+
+-- Représente un achat
+CREATE OR REPLACE TYPE t_achat AS OBJECT (
+    contenu REF t_contenu,
+    num_saison NUMBER
+);
+/
+
+-- Collection d'achats
+CREATE TYPE achat_list AS TABLE OF t_achat;
+/
+-- Collection de locations
+CREATE TYPE location_list AS TABLE OF t_location;
+/
+
+-- COMPTES CLIENTS ------------------------------------------------------------
+
+CREATE TABLE CompteClient (
+    id_client NUMBER PRIMARY KEY,
+    prenom VARCHAR(20),
+    nom VARCHAR(20),
+    adresse VARCHAR(200),
+    mail VARCHAR(50),
+    telephone VARCHAR(20),
+    hash_mdp VARCHAR(20), -- Pour ce TP, on fait comme si c'était un mdp sécurisé
+    achats achat_list,
+    locations location_list,
+    abonnement t_abonnement,
+    CONSTRAINT fk_client_formule
+        FOREIGN KEY (abonnement.id_abonnement)
+        REFERENCES Abonnement (id_abonnement)
+)
+NESTED TABLE achats STORE AS Achats_Stockage
+NESTED TABLE locations STORE AS Locations_Stockage;
+
+
+------------------------------------------------------------------------------------------------
+-- REMPLISSAGE POUR LES EXERCICES SUIVANTS
+
+-- 1. PERSONNES --
+INSERT INTO Personne VALUES (t_personne(1, 'David', 'Fincher'));
+INSERT INTO Personne VALUES (t_personne(2, 'Brad', 'Pitt'));
+INSERT INTO Personne VALUES (t_personne(3, 'Edward', 'Norton'));
+INSERT INTO Personne VALUES (t_personne(4, 'Morgan', 'Freeman'));
+INSERT INTO Personne VALUES (t_personne(5, 'Alice', 'Moreau'));
+INSERT INTO Personne VALUES (t_personne(6, 'Hugo', 'Bernard'));
+INSERT INTO Personne VALUES (t_personne(7, 'Camille', 'Leroy'));
+INSERT INTO Personne VALUES (t_personne(8, 'Lina', 'Martin'));
+
+-- 2. CONTENUS --
+INSERT INTO Contenu
+SELECT t_cinema(                                                    -- Film
+    1,                                                              -- ID
+    'Fight Club',                                                   -- Titre
+    'On ne parle pas du Fight Club.',                               -- Description
+    'Thriller',                                                     -- Thème
+    mots_cles_list('societe', 'combat'),                            -- Mots-clés
+    personnes_refs(REF(r)),                                         -- Réalisateur
+    1999,                                                           -- Année
+    'Etats-Unis',                                                   -- Pays
+    139,                                                            -- Durée en minutes
+    personnes_refs(REF(a1), REF(a2)),                               -- Acteurs
+    personnes_refs()                                                -- Scénaristes
+    )
+FROM Personne r, Personne a1, Personne a2
+WHERE r.id_personne = 1 AND a1.id_personne = 2 AND a2.id_personne = 3;
+
+INSERT INTO Contenu
+SELECT t_cinema(                                                    -- Film
+    2,                                                              -- ID
+    'Seven',                                                        -- Titre
+    'On enquête.',                                                  -- Description
+    'Thriller',                                                     -- Thème
+    mots_cles_list('enquete', 'police'),                            -- Mots-clés
+    personnes_refs(REF(r)),                                         -- Réalisateur
+    1995,                                                           -- Année
+    'Etats-Unis',                                                   -- Pays
+    127,                                                            -- Durée en minutes
+    personnes_refs(REF(a1), REF(a2)),                               -- Acteurs
+    personnes_refs()                                                -- Scénaristes
+    )
+FROM Personne r, Personne a1, Personne a2
+WHERE r.id_personne = 1 AND a1.id_personne = 2 AND a2.id_personne = 4;
+
+INSERT INTO Contenu
+SELECT t_serie(                                                     -- Série
+    3,                                                              -- ID
+    'Les Chroniques de Brume',                                      -- Titre
+    'Un village découvre un passage vers un autre monde.',          -- Description
+    'Fantasy / Aventure',                                           -- Thème
+    mots_cles_list('magie', 'aventure'),                            -- Mots-clés
+    personnes_refs(REF(r)),                                         -- Réalisatrice
+    2021,                                                           -- Année
+    'France',                                                       -- Pays
+    saisons_list(                                                   -- Saisons
+        t_saison(
+            1,                                                      -- Numéro de saison
+            6,                                                      -- Nombre d'épisodes
+            'La découverte du passage'                              -- Description
+        ),
+        t_saison(
+            2,                                                      -- Numéro de saison
+            8,                                                      -- Nombre d'épisodes
+            'Le voyage de l''autre côté'                            -- Description
+        )
+    )
+    )
+FROM Personne r
+WHERE r.id_personne = 5;
+
+INSERT INTO Contenu
+SELECT t_jeunesse(                                                  -- Jeunesse
+    4,                                                              -- ID
+    'Les Petits Astronautes',                                       -- Titre
+    'Des enfants explorent une station spatiale.',                  -- Description
+    'Anime / Espace',                                               -- Thème
+    mots_cles_list('espace', 'amitie'),                             -- Mots-clés
+    personnes_refs(REF(r)),                                         -- Réalisatrice
+    2020,                                                           -- Année
+    'France',                                                       -- Pays
+    80,                                                             -- Durée en minutes
+    personnes_refs(REF(r)),                                         -- Scénaristes
+    personnes_refs(REF(c))                                          -- Compositeurs
+    )
+FROM Personne r, Personne c
+WHERE r.id_personne = 5 AND c.id_personne = 6;
+
+INSERT INTO Contenu
+SELECT t_divertissement(                                            -- Divertissement
+    5,                                                              -- ID
+    'Une soirée en scène',                                          -- Titre
+    'Un spectacle mêlant sketchs et chansons.',                     -- Description
+    'Humour',                                                       -- Thème
+    mots_cles_list('spectacle', 'musique'),                         -- Mots-clés
+    personnes_refs(REF(r)),                                         -- Réalisateur
+    2022,                                                           -- Année
+    'France',                                                       -- Pays
+    95,                                                             -- Durée en minutes
+    personnes_refs(REF(r)),                                         -- Metteurs en scène
+    personnes_refs(REF(i))                                          -- Interprètes
+    )
+FROM Personne r, Personne i
+WHERE r.id_personne = 6 AND i.id_personne = 7;
+
+INSERT INTO Contenu
+SELECT t_cinema(                                                    -- Film
+    6,                                                              -- ID
+    'La Forêt des lucioles',                                        -- Titre
+    'Une garde forestière suit des lumières mystérieuses.',         -- Description
+    'Fantasy / Nature',                                             -- Thème
+    mots_cles_list('foret', 'magie'),                               -- Mots-clés
+    personnes_refs(REF(r)),                                         -- Réalisatrice
+    2021,                                                           -- Année
+    'France',                                                       -- Pays
+    105,                                                            -- Durée en minutes
+    personnes_refs(REF(a)),                                         -- Acteurs
+    personnes_refs(REF(r))                                          -- Scénaristes
+    )
+FROM Personne r, Personne a
+WHERE r.id_personne = 8 AND a.id_personne = 7;
+
+-- 3. FORMULES D'ABONNEMENT --
+INSERT INTO Abonnement (
+    id_abonnement, nom_formule, prix_mensuel, nb_locations_max,
+    duree_cinema, duree_serie, duree_jeunesse, duree_divertissement
+)
+VALUES (
+    1,                                                              -- ID
+    'Basique',                                                      -- Nom de la formule
+    9.99,                                                           -- Prix mensuel
+    2,                                                              -- Nombre maximal de locations simultanées
+    1,                                                              -- Durée maximale : cinéma (jours)
+    1,                                                              -- Durée maximale : série (jours)
+    2,                                                              -- Durée maximale : jeunesse (jours)
+    2                                                               -- Durée maximale : divertissement (jours)
+);
+
+INSERT INTO Abonnement (
+    id_abonnement, nom_formule, prix_mensuel, nb_locations_max,
+    duree_cinema, duree_serie, duree_jeunesse, duree_divertissement
+)
+VALUES (
+    2,                                                              -- ID
+    'Prénium',                                                      -- Nom de la formule
+    14.99,                                                          -- Prix mensuel
+    5,                                                              -- Nombre maximal de locations simultanées
+    4,                                                              -- Durée maximale : cinéma (jours)
+    4,                                                              -- Durée maximale : série (jours)
+    5,                                                              -- Durée maximale : jeunesse (jours)
+    5                                                               -- Durée maximale : divertissement (jours)
+);
+
+INSERT INTO Abonnement (
+    id_abonnement, nom_formule, prix_mensuel, nb_locations_max,
+    duree_cinema, duree_serie, duree_jeunesse, duree_divertissement
+)
+VALUES (
+    3,                                                              -- ID
+    'VIP',                                                          -- Nom de la formule
+    19.99,                                                          -- Prix mensuel
+    10,                                                             -- Nombre maximal de locations simultanées
+    10,                                                             -- Durée maximale : cinéma (jours)
+    10,                                                             -- Durée maximale : série (jours)
+    10,                                                             -- Durée maximale : jeunesse (jours)
+    10                                                              -- Durée maximale : divertissement (jours)
+);
+
+
+-- 4. CLIENTS --
+INSERT INTO CompteClient (
+    id_client, prenom, nom, adresse, mail, telephone, hash_mdp,
+    achats, locations, abonnement
+)
+SELECT
+    1,                                                              -- ID
+    'Jean',                                                         -- Prénom
+    'Dupont',                                                       -- Nom
+    '1 rue des Tests, Poitiers',                                    -- Adresse
+    'jean.dupont@example.test',                                     -- Mail
+    '0600000001',                                                   -- Téléphone
+    'test_1',                                                       -- Mot de passe
+    achat_list(                                                     -- Achats
+        t_achat(
+            REF(j),                                                 -- Contenu : Les Petits Astronautes
+            NULL                                                    -- Contenu entier
+        )
+    ),
+    location_list(                                                  -- Locations
+        t_location(
+            REF(fc),                                                -- Contenu : Fight Club
+            t_dates(DATE '2022-01-10', DATE '2022-01-12'),          -- Dates de début et de fin
+            NULL                                                    -- Contenu entier
+        ),
+        t_location(
+            REF(s),                                                 -- Contenu : Les Chroniques de Brume
+            t_dates(DATE '2022-03-05', DATE '2022-03-10'),          -- Dates de début et de fin
+            1                                                       -- Numéro de saison
+        ),
+        t_location(
+            REF(sv),                                                -- Contenu : Seven
+            t_dates(DATE '2022-04-10', DATE '2022-04-12'),          -- Dates hors de la période demandée en B2.2
+            NULL                                                    -- Contenu entier
+        ),
+        t_location(
+            REF(f),                                                 -- Contenu : La Forêt des lucioles
+            t_dates(TRUNC(SYSDATE) - 1, TRUNC(SYSDATE) + 2),        -- Location en cours
+            NULL                                                    -- Contenu entier
+        )
+    ),
+    t_abonnement(                                                   -- Abonnement effectif
+        1,                                                          -- Formule Basique
+        t_dates(DATE '2022-01-01', TRUNC(SYSDATE) + 30)             -- Dates de validité
+    )
+FROM Contenu fc, Contenu s, Contenu sv, Contenu f, Contenu j
+WHERE fc.id_contenu = 1 AND s.id_contenu = 3 AND sv.id_contenu = 2
+  AND f.id_contenu = 6 AND j.id_contenu = 4;
+
+INSERT INTO CompteClient (
+    id_client, prenom, nom, adresse, mail, telephone, hash_mdp,
+    achats, locations, abonnement
+)
+SELECT
+    2,                                                              -- ID
+    'Marie',                                                        -- Prénom
+    'Martin',                                                       -- Nom
+    '2 rue des Tests, Poitiers',                                    -- Adresse
+    'marie.martin@example.test',                                    -- Mail
+    '0600000002',                                                   -- Téléphone
+    'fictif_test_2',                                                -- Mot de passe
+    achat_list(                                                     -- Achats
+        t_achat(
+            REF(fc),                                                -- Contenu : Fight Club
+            NULL                                                    -- Contenu entier
+        )
+    ),
+    location_list(                                                  -- Locations
+        t_location(
+            REF(sv),                                                -- Contenu : Seven
+            t_dates(TRUNC(SYSDATE) - 2, TRUNC(SYSDATE) + 3),        -- Location en cours
+            NULL                                                    -- Contenu entier
+        ),
+        t_location(
+            REF(s),                                                 -- Contenu : Les Chroniques de Brume
+            t_dates(TRUNC(SYSDATE) - 1, TRUNC(SYSDATE) + 6),        -- Location en cours
+            2                                                       -- Numéro de saison
+        )
+    ),
+    t_abonnement(                                                   -- Abonnement effectif
+        2,                                                          -- Formule Prénium
+        t_dates(TRUNC(SYSDATE) - 30, TRUNC(SYSDATE) + 30)           -- Dates de validité
+    )
+FROM Contenu fc, Contenu sv, Contenu s
+WHERE fc.id_contenu = 1 AND sv.id_contenu = 2 AND s.id_contenu = 3;
+
+INSERT INTO CompteClient (
+    id_client, prenom, nom, adresse, mail, telephone, hash_mdp,
+    achats, locations, abonnement
+)
+VALUES (
+    3,                                                              -- ID
+    'Alex',                                                         -- Prénom
+    'Bernard',                                                      -- Nom
+    '3 rue des Tests, Poitiers',                                    -- Adresse
+    'alex.bernard@example.test',                                    -- Mail
+    '0600000003',                                                   -- Téléphone
+    'fictif_test_3',                                                -- Mot de passe
+    achat_list(),                                                   -- Aucun achat
+    location_list(),                                                -- Aucune location
+    t_abonnement(                                                   -- Abonnement effectif
+        3,                                                          -- Formule VIP
+        t_dates(TRUNC(SYSDATE) - 30, TRUNC(SYSDATE) + 30)           -- Dates de validité
+    )
+);
+
+INSERT INTO CompteClient (
+    id_client, prenom, nom, adresse, mail, telephone, hash_mdp,
+    achats, locations, abonnement
+)
+SELECT
+    4,                                                              -- ID
+    'Léa',                                                          -- Prénom
+    'Petit',                                                        -- Nom
+    '4 rue des Tests, Poitiers',                                    -- Adresse
+    'lea.petit@example.test',                                       -- Mail
+    '0600000004',                                                   -- Téléphone
+    'fictif_test_4',                                                -- Mot de passe
+    achat_list(                                                     -- Achats
+        t_achat(
+            REF(c),                                                 -- Contenu : Une soirée en scène
+            NULL                                                    -- Contenu entier
+        )
+    ),
+    location_list(),                                                -- Aucune location
+    NULL                                                            -- Aucun abonnement
+FROM Contenu c
+WHERE c.id_contenu = 5;
+
+COMMIT;
 
 
 -- ------------------------------------------------------------------------------------------------
 -- B2 — Écrire les requêtes SQL demandées pour la conception proposée en B1.
--- Livrable mentionné dans le sujet : script requete.sql.
 -- ------------------------------------------------------------------------------------------------
 
 -- ------------------------------------------------------------------------------------------------
@@ -451,3 +948,5 @@ WHERE a.personne.prenom = 'Mon' AND a.personne.nom = 'Fils';
 -- ------------------------------------------------------------------------------------------------
 -- B3 — Compléter avec d'autres requêtes utilisant les concepts relationnels-objets.
 -- ------------------------------------------------------------------------------------------------
+
+-- Nombre de saisons d'une série
