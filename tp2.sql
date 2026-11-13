@@ -818,7 +818,7 @@ SELECT
         )
     ),
     t_abonnement(                                                   -- Abonnement effectif
-        1,                                                          -- Formule Basique
+        2,                                                          -- Formule Prénium
         t_dates(DATE '2022-01-01', TRUNC(SYSDATE) + 30)             -- Dates de validité
     )
 FROM Contenu fc, Contenu s, Contenu sv, Contenu f, Contenu j
@@ -836,7 +836,7 @@ SELECT
     '2 rue des Tests, Poitiers',                                    -- Adresse
     'marie.martin@example.test',                                    -- Mail
     '0600000002',                                                   -- Téléphone
-    'test_2',                                                -- Mot de passe
+    'test_2',                                                       -- Mot de passe
     achat_list(                                                     -- Achats
         t_achat(
             REF(fc),                                                -- Contenu : Fight Club
@@ -856,7 +856,7 @@ SELECT
         )
     ),
     t_abonnement(                                                   -- Abonnement effectif
-        2,                                                          -- Formule Prénium
+        1,                                                          -- Formule Basique
         t_dates(TRUNC(SYSDATE) - 30, TRUNC(SYSDATE) + 30)           -- Dates de validité
     )
 FROM Contenu fc, Contenu sv, Contenu s
@@ -873,7 +873,7 @@ VALUES (
     '3 rue des Tests, Poitiers',                                    -- Adresse
     'alex.bernard@example.test',                                    -- Mail
     '0600000003',                                                   -- Téléphone
-    'test_3',                                                -- Mot de passe
+    'test_3',                                                       -- Mot de passe
     achat_list(),                                                   -- Aucun achat
     location_list(),                                                -- Aucune location
     t_abonnement(                                                   -- Abonnement effectif
@@ -893,7 +893,7 @@ SELECT
     '4 rue des Tests, Poitiers',                                    -- Adresse
     'lea.petit@example.test',                                       -- Mail
     '0600000004',                                                   -- Téléphone
-    'test_4',                                                -- Mot de passe
+    'test_4',                                                       -- Mot de passe
     achat_list(                                                     -- Achats
         t_achat(
             REF(c),                                                 -- Contenu : Une soirée en scène
@@ -934,36 +934,91 @@ ORDER BY Titre ASC;
 -- B2.2 — Lister les titres et les thèmes des contenus empruntés par Dupont entre
 -- janvier et mars 2022.
 
--- SELECT c.Titre, c.Theme
--- FROM CompteClient cc, cc.locations.contenu c
--- WHERE cc.Nom = 'Dupont' AND
---     cc.dates.date_debut > "janvier 2022" AND
---     cc.dates.date_fin < "mars 2022"
--- ;
--- /
+SELECT c.Titre, c. Theme
+FROM CompteClient cc,
+    TABLE(cc.locations) l,
+    Contenu c
+WHERE cc.Nom = 'Dupont'
+    AND l.contenu = REF(c)
+    AND l.dates.date_debut >= DATE '2022-01-01'
+    AND l.dates.date_fin < DATE '2022-04-01'
+;
+
+-- Résultats attendus :
+-- TITRE                       THEME                                             
+-- ------------------------    --------------------
+-- Fight Club                  Thriller                                          
+-- Les Chroniques de Brume     Fantasy / Aventure 
 
 
 -- ------------------------------------------------------------------------------------------------
 -- B2.3 — Donner, pour chaque abonné, son nombre de contenus empruntés et le nombre
 -- qu'il peut encore emprunter compte tenu de son abonnement.
 
--- Compléter ici
+SELECT cc.id_client, cc.prenom, cc.nom,
+    COALESCE(a.nom_formule, 'Aucun') Abonnement,    -- Remplace les valeurs nulles (clients sans abonnements) par "Aucun"
+    CARDINALITY(cc.locations) AS ContenuEmprunte,   -- Compte le nombre d'éléments dans la collection
+    COALESCE(
+        a.nb_locations_max - CARDINALITY(cc.locations),
+        0
+    ) AS EmpruntsRestants
+FROM CompteClient cc
+LEFT JOIN Abonnement a ON cc.abonnement.id_abonnement = a.id_abonnement -- LEFT JOIN : On conserve les clients sans abonnement
+ORDER BY cc.id_client;
 
+-- Résultats attendus :
+--  ID_CLIENT PRENOM               NOM                  ABONNEMENT           CONTENUEMPRUNTE EMPRUNTSRESTANTS
+-- ---------- -------------------- -------------------- -------------------- --------------- ----------------
+--          1 Jean                 Dupont               Prénium                            4                1
+--          2 Marie                Martin               Basique                            2                0
+--          3 Alex                 Bernard              VIP                                0               10
+--          4 Léa                  Petit                Aucun                              0                0
 
 -- ------------------------------------------------------------------------------------------------
 -- B2.4 — Lister sans doublon les acteurs ayant joué dans un film réalisé par
 -- David Fincher, avec le nombre de films tournés avec ce réalisateur pour chacun.
 
--- Compléter ici
+SELECT p.prenom, p.nom, COUNT(DISTINCT c.id_contenu) AS nb_films 
+FROM Contenu c,
+    TABLE(c.realisateurs) r,                        -- Contient des personnes_refs, donc des références de personnes
+    TABLE(TREAT(VALUE(c) AS t_cinema).acteurs) a,   -- Les acteurs n'existent que pour les films de la table contenu
+    Personne p
+WHERE DEREF(r.COLUMN_VALUE).nom = 'Fincher'         -- COLUMN_VALUE : on récupère la valeur de la collection (ici une référence de personne)
+    AND DEREF(r.COLUMN_VALUE).prenom = 'David'
+    AND REF(p) = a.COLUMN_VALUE
+GROUP BY p.id_personne, p.prenom, p.nom;
+
+-- Résultats attendus :
+-- PRENOM               NOM                    NB_FILMS
+-- -------------------- -------------------- ----------
+-- Brad                 Pitt                          2
+-- Edward               Norton                        1
+-- Morgan               Freeman                       1
 
 
 -- ------------------------------------------------------------------------------------------------
 -- B2.5 — Trouver le ou les réalisateurs ayant réalisé le plus de contenus.
 
--- Compléter ici
+SELECT p.prenom, p.nom, COUNT(DISTINCT c.id_contenu) AS nb_contenus
+FROM Contenu c,
+    TABLE(c.realisateurs) r,
+    Personne p
+WHERE REF(p) = r.COLUMN_VALUE
+GROUP BY p.id_personne, p.prenom, p.nom
+ORDER BY nb_contenus DESC
+;
+
+-- Résultats attendus :
+-- PRENOM               NOM                  NB_CONTENUS
+-- -------------------- -------------------- -----------
+-- David                Fincher                        2
+-- Alice                Moreau                         2
+-- Lina                 Martin                         1
+-- Hugo                 Bernard                        1
 
 -- ------------------------------------------------------------------------------------------------
 -- B3 — Compléter avec d'autres requêtes utilisant les concepts relationnels-objets.
 -- ------------------------------------------------------------------------------------------------
 
--- Nombre de saisons d'une série
+-- ------------------------------------------------------------------------------------------------
+-- B3.1 — Nombre de saisons de chaque série
