@@ -1022,6 +1022,7 @@ ORDER BY nb_contenus DESC
 
 -- ------------------------------------------------------------------------------------------------
 -- B3.1 — Nombre de saisons de chaque série
+
 SELECT c.titre,
     CARDINALITY(TREAT(VALUE(c) AS t_serie).saisons) AS nb_saisons
 FROM Contenu c
@@ -1036,6 +1037,18 @@ WHERE VALUE(c) IS OF (t_serie)  -- On ne sélectionne que les contenus de type s
 
 -- ------------------------------------------------------------------------------------------------
 -- B3.2 — Trouver les contenus partageant le mot-clé "magie"
+
+SELECT c.Titre
+FROM Contenu c, TABLE(c.mots_cles) mc
+WHERE mc.COLUMN_VALUE = 'magie'
+;
+
+-- Résultats attendus :
+-- TITRE                                                                                               
+-- ----------------------------
+-- Les Chroniques de Brume
+-- La Forêt des lucioles
+
 
 -- ------------------------------------------------------------------------------------------------
 -- B3.3 — Trouver les locations en retard
