@@ -1032,3 +1032,13 @@ WHERE VALUE(c) IS OF (t_serie)  -- On ne sélectionne que les contenus de type s
 -- TITRE                      NB_SAISONS
 -- -------------------------- ----------
 -- Les Chroniques de Brume             2
+
+
+-- ------------------------------------------------------------------------------------------------
+-- B3.2 — Trouver les contenus partageant le mot-clé "magie"
+
+-- ------------------------------------------------------------------------------------------------
+-- B3.3 — Trouver les locations en retard
+
+-- ------------------------------------------------------------------------------------------------
+-- B3.4 — Lister les personnes à la fois réalisatrices et scénaristes d'un même contenu
