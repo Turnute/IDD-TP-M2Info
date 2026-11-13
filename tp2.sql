@@ -836,7 +836,7 @@ SELECT
     '2 rue des Tests, Poitiers',                                    -- Adresse
     'marie.martin@example.test',                                    -- Mail
     '0600000002',                                                   -- Téléphone
-    'fictif_test_2',                                                -- Mot de passe
+    'test_2',                                                -- Mot de passe
     achat_list(                                                     -- Achats
         t_achat(
             REF(fc),                                                -- Contenu : Fight Club
@@ -873,7 +873,7 @@ VALUES (
     '3 rue des Tests, Poitiers',                                    -- Adresse
     'alex.bernard@example.test',                                    -- Mail
     '0600000003',                                                   -- Téléphone
-    'fictif_test_3',                                                -- Mot de passe
+    'test_3',                                                -- Mot de passe
     achat_list(),                                                   -- Aucun achat
     location_list(),                                                -- Aucune location
     t_abonnement(                                                   -- Abonnement effectif
@@ -893,7 +893,7 @@ SELECT
     '4 rue des Tests, Poitiers',                                    -- Adresse
     'lea.petit@example.test',                                       -- Mail
     '0600000004',                                                   -- Téléphone
-    'fictif_test_4',                                                -- Mot de passe
+    'test_4',                                                -- Mot de passe
     achat_list(                                                     -- Achats
         t_achat(
             REF(c),                                                 -- Contenu : Une soirée en scène
@@ -916,14 +916,31 @@ COMMIT;
 -- B2.1 — Lister par ordre alphabétique les titres des contenus dont le thème principal
 -- comprend le mot « Anime » ou « Fantasy ».
 
--- Compléter ici
+SELECT Titre
+FROM Contenu
+WHERE Theme LIKE '%Anime%' OR Theme LIKE '%Fantasy%'
+ORDER BY Titre ASC;
+/
+
+-- Résultats attendus :
+-- TITRE                                                                                               
+-- ----------------------------
+-- La Forêt des lucioles
+-- Les Chroniques de Brume
+-- Les Petits Astronautes
 
 
 -- ------------------------------------------------------------------------------------------------
 -- B2.2 — Lister les titres et les thèmes des contenus empruntés par Dupont entre
 -- janvier et mars 2022.
 
--- Compléter ici
+-- SELECT c.Titre, c.Theme
+-- FROM CompteClient cc, cc.locations.contenu c
+-- WHERE cc.Nom = 'Dupont' AND
+--     cc.dates.date_debut > "janvier 2022" AND
+--     cc.dates.date_fin < "mars 2022"
+-- ;
+-- /
 
 
 -- ------------------------------------------------------------------------------------------------
