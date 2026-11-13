@@ -1022,3 +1022,13 @@ ORDER BY nb_contenus DESC
 
 -- ------------------------------------------------------------------------------------------------
 -- B3.1 — Nombre de saisons de chaque série
+SELECT c.titre,
+    CARDINALITY(TREAT(VALUE(c) AS t_serie).saisons) AS nb_saisons
+FROM Contenu c
+WHERE VALUE(c) IS OF (t_serie)  -- On ne sélectionne que les contenus de type série
+;
+
+-- Résultats attendus :
+-- TITRE                      NB_SAISONS
+-- -------------------------- ----------
+-- Les Chroniques de Brume             2
