@@ -401,25 +401,20 @@ DROP TYPE t_personne;
 -- ------------------------------------------------------------------------------------------------
 -- EXPLICATION DE LA PROPOSITION
 
--- On fait un type t_personne(prénom, nom), utile pour un peu tout
+-- On fait un type t_personne(prénom, nom)
 -- Table Personne pour stocker toutes les personnes enregistrées dans la bd (pas les clients : les réalisateurs, acteurs...)
 
 -- type t_dates(date_debut, date_fin), utile pour location et abonnement
 
 -- On utilise un mécanisme d'héritage pour le contenu :
--- Classe CONTENU de base avec id(pkey), titre, desc, thème, mots clés (collection varchar), réalisateurs (collection t_personne), année et pays
--- Héritage en :
--- - cinema : duree, acteurs (collection t_personne), scenaristes (collection t_personne)
--- - serie : collection saisons (type t_saison(num, nb_ep, desc)) + nombre (automatisé par trigger)
--- - jeunesse : duree, scenaristes (collection t_personne), compositeur (collection t_personne)
--- - divertissement : duree, metteurs en scene (collection t_personne), interprètes (collection t_personne)
-
---  → table Contenu of type t_contenu avec tout ça
+-- Type t_contenu de base
+-- Héritage en cinema, serie, jeunesse et divertissement (avec des collections t_personne)
+--  --> TABLE CONTENU of type t_contenu
 
 -- type t_location(ref t_contenu, t_dates, num_saison (peut être null))
 -- type t_achat(ref t_contenu, num_saison)
 
--- Table modèle d'abonnement : duree max d'emprunt pour les 4 types (max_cine, max_series...), nb max total d'emprunts, prix mensuel, nom formule, id
+-- Table modèle d'abonnement : duree max d'emprunt pour les 4 types (max_cine, max_series...)
 
 -- type t_abonnement(id_abonnement, t_dates)
 
@@ -429,8 +424,15 @@ DROP TYPE t_personne;
 -- - contenus loués (collection t_location),
 -- - abonnement t_abonnement (peut être null) (foreign key)
 
--- TODO : petit diagramme de classe / base de données en texte pour expliquer tout ça
+------------------------------------------------------------------------------------------------
+-- DIAGRAMME
 
+-- VOIR FICHIER tp2b_conception.png
+
+------------------------------------------------------------------------------------------------
+-- REMPLISSAGE POUR LES EXERCICES SUIVANTS
+
+-- VOIR FICHIER tp2b_inserts.sql
 
 ------------------------------------------------------------------------------------------------
 -- CREATION DE LA STRUCTURE DE LA BASE DE DONNEES
@@ -604,12 +606,6 @@ NESTED TABLE achats STORE AS Achats_Stockage
 NESTED TABLE locations STORE AS Locations_Stockage;
 
 
-------------------------------------------------------------------------------------------------
--- REMPLISSAGE POUR LES EXERCICES SUIVANTS
-
--- VOIR FICHIER tp2_inserts.sql
-
-
 -- ------------------------------------------------------------------------------------------------
 -- B2 — Écrire les requêtes SQL demandées pour la conception proposée en B1.
 -- ------------------------------------------------------------------------------------------------
@@ -755,5 +751,8 @@ WHERE mc.COLUMN_VALUE = 'magie'
 -- ------------------------------------------------------------------------------------------------
 -- B3.3 — Trouver les locations en retard
 
--- ------------------------------------------------------------------------------------------------
--- B3.4 — Lister les personnes à la fois réalisatrices et scénaristes d'un même contenu
+SELECT cc.prenom, cc.nom, c.titre, l.num_saison,
+    l.dates.date_fin AS date_limite
+FROM CompteClient cc, TABLE(cc.locations) l, Contenu c
+WHERE l.contenu = REF(c) AND l.dates.date_fin < SYSDATE
+ORDER BY l.dates.date_fin;
